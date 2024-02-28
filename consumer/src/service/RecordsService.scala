@@ -2,13 +2,52 @@ package consumer.service
 
 import fs2.kafka.ConsumerRecord
 import io.circe._, io.circe.parser._
-import cats.effect.kernel.Async
-import cats.syntax.all._
-import org.typelevel.log4cats.LoggerFactory
 import consumer.config.consumerConfig.*
-import cats.effect.kernel.Resource
+import cats.effect.kernel.Async
+import cats.effect.*
+import cats.syntax.all.*
 
 object recordsService {
+
+  class RecordsServiceLive[A, B: Decoder] private (
+      recordsServiceConfig: RecordsServiceConfig
+  ) {
+
+    private val recordsContainer = new RecordsContainer[A, B](recordsServiceConfig.maxRecordsSize)
+
+    def deserializeRecord(record: ConsumerRecord[A, A]): Either[String, (A, B)] = {
+      decode[B](record.value.toString())
+        .map(res => (record.key, res))
+        .left
+        .map(err => err.toString)
+    }
+
+    def addRecord(record: (A, B)): Unit = {
+      recordsContainer.update(record._1, record._2)
+    }
+
+    def processKafkaRecord(record: ConsumerRecord[A, A]): Either[String, (A, B)] = {
+      deserializeRecord(record).map { record =>
+        addRecord(record._1, record._2)
+        record
+      }
+    }
+
+    def getLatestRecords: List[(A, B)] = {
+      recordsContainer.getLatest
+    }
+
+    def getAllRecords: Map[A, List[B]] = {
+      recordsContainer.getAllAsMap
+    }
+  }
+
+  object RecordsServiceLive {
+    def make[F[_]: Async, A, B: Decoder](
+        recordsServiceConfig: RecordsServiceConfig
+    ): F[RecordsServiceLive[A, B]] =
+      new RecordsServiceLive[A, B](recordsServiceConfig).pure[F]
+  }
 
   class RecordsList[A](maxSize: Int) {
     private val list: scala.collection.mutable.ListBuffer[A] = scala.collection.mutable.ListBuffer()
@@ -46,45 +85,5 @@ object recordsService {
     }
 
     def getAllAsMap: Map[A, List[B]] = records.toMap.map({ case (k, v) => (k, v.getAll) })
-  }
-
-  class RecordsServiceLive[A, B: Decoder] private (
-      recordsServiceConfig: RecordsServiceConfig
-  ) {
-
-    private val recordsContainer = new RecordsContainer[A, B](recordsServiceConfig.maxRecordsSize)
-
-    def deserializeRecord(record: ConsumerRecord[A, A]): Either[String, (A, B)] = {
-      decode[B](record.value.toString())
-        .map(res => (record.key, res))
-        .left
-        .map(err => err.toString)
-    }
-
-    def addRecord(record: (A, B)): Unit = {
-      recordsContainer.update(record._1, record._2)
-    }
-
-    def processKafkaRecord(record: ConsumerRecord[A, A]): Either[String, (A, B)] = {
-      deserializeRecord(record).map { record =>
-        addRecord(record._1, record._2)
-        record
-      }
-    }
-
-    def getLatestRecords: List[(A, B)] = {
-      recordsContainer.getLatest
-    }
-
-    def getAllRecords: Map[A, List[B]] = {
-      recordsContainer.getAllAsMap
-    }
-  }
-
-  object RecordsServiceLive {
-    def resource[F[_], A, B: Decoder](
-        recordsServiceConfig: RecordsServiceConfig
-    ): Resource[F, RecordsServiceLive[A, B]] =
-      Resource.pure(new RecordsServiceLive[A, B](recordsServiceConfig))
   }
 }

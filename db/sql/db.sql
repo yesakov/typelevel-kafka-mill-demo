@@ -1,19 +1,36 @@
--- Create users table
-CREATE TABLE users
+CREATE TABLE cryptocurrencies
 (
-    user_id uuid PRIMARY KEY DEFAULT gen_random_uuid (),
-    username VARCHAR(255) NOT NULL,
-    email VARCHAR(255) NOT NULL,
-    age INT,
-    gender VARCHAR(10),
-    country VARCHAR(50),
-    phone_number VARCHAR(35)
+    id SERIAL PRIMARY KEY,
+    name VARCHAR(50) UNIQUE NOT NULL
 );
 
--- Insert dummy data
-INSERT INTO users
-    (username, email, age, gender, country, phone_number)
-VALUES
-    ('JohnDoe', 'john.doe@example.com', 28, 'Male', 'USA', '+1 (555) 123-4567'),
-    ('JaneSmith', 'jane.smith@example.com', 25, 'Female', 'Canada', '+1 (555) 987-6543'),
-    ('BobJohnson', 'bob.johnson@example.com', 32, 'Male', 'UK', '+44 20 7123 4567');
+CREATE TABLE crypto_prices
+(
+    id SERIAL PRIMARY KEY,
+    crypto_id INTEGER NOT NULL,
+    usd DECIMAL(20, 8),
+    usd_24h_change DECIMAL(10, 8),
+    eur DECIMAL(20, 8),
+    eur_24h_change DECIMAL(10, 8),
+    uah DECIMAL(20, 8),
+    uah_24h_change DECIMAL(10, 8),
+    last_updated_at TIMESTAMP
+    WITHOUT TIME ZONE,
+    FOREIGN KEY
+    (crypto_id) REFERENCES cryptocurrencies
+    (id)
+);
+
+    INSERT INTO cryptocurrencies
+        (name)
+    VALUES
+        ('bitcoin'),
+        ('ethereum'),
+        ('ripple'),
+        ('litecoin'),
+        ('cardano'),
+        ('polkadot'),
+        ('bitcoin-cash'),
+        ('stellar'),
+        ('chainlink'),
+        ('binancecoin');

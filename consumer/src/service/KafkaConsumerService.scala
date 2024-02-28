@@ -7,7 +7,7 @@ import org.typelevel.log4cats.LoggerFactory
 import fs2.kafka.ConsumerSettings
 import fs2.kafka.*
 import cats.effect.*
-import cats.syntax.all._
+import cats.syntax.all.*
 import cats.effect.kernel.Async
 import fs2.Stream
 import fs2.*
@@ -41,43 +41,28 @@ class KafkaConsumerServiceLive[F[_]: Async: Concurrent, A, B] private (
       process: ConsumerRecord[A, A] => Either[String, (A, B)]
   ): F[Stream[F, Either[String, (A, B)]]] = {
 
-    val a123: F[Stream[F, Either[String, (A, B)]]] = Async[F]
-      .pure(
-        kafkaConsumer
-          .subscribeTo(topic)
-          .partitionedRecords
-          .map { partitionStream =>
-            partitionStream.map { committable =>
-              process(committable.record)
-            // committable.record
+    for {
+      _ <- logger.info(s"Consuming from topic: $topic")
+      res <- Async[F]
+        .pure(
+          kafkaConsumer
+            .subscribeTo(topic)
+            .partitionedRecords
+            .map { partitionStream =>
+              partitionStream.map { committable =>
+                process(committable.record)
+              }
             }
-          }
-          .parJoinUnbounded
-      )
-
-    //   for {
-    //   _ <- logger.info(s"Recieving data from Kafka topic: '$topic'")
-    //   s <- kafkaConsumer
-    //     .subscribeTo(topic)
-    //     .partitionedRecords
-    //     .map { partitionStream =>
-    //       partitionStream.map { committable =>
-    //         process(committable.record)
-    //       // committable.record
-    //       }
-    //     }
-    //     .parJoinUnbounded
-    //   // .parJoinUnbounded
-    // } yield s
-
-    a123
+            .parJoinUnbounded
+        )
+    } yield res
   }
 }
 
 object KafkaConsumerServiceLive {
-  def resource[F[_]: Async, A, B](
+  def make[F[_]: Async, A, B](
       config: KafkaConsumerConfig,
       loggerFactory: LoggerFactory[F]
-  )(implicit deserializer: Deserializer[F, A]): Resource[F, KafkaConsumerServiceLive[F, A, B]] =
-    Resource.pure(new KafkaConsumerServiceLive[F, A, B](config, loggerFactory))
+  )(implicit deserializer: Deserializer[F, A]): F[KafkaConsumerServiceLive[F, A, B]] =
+    new KafkaConsumerServiceLive[F, A, B](config, loggerFactory).pure[F]
 }

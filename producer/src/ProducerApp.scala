@@ -34,8 +34,6 @@ object Producer extends IOApp {
       _   <- repeat(toRepeat, process)
     } yield ()
 
-    //  fs2.Stream.awakeDelay[IO](duration).as(1).scan[Int](0)(_ + _),
-
   def processCryptoData(kafkaProducer: KafkaProducerDSL[IO, String])(
       cryptoPrices: CryptoPrices
   ): IO[Unit] = {

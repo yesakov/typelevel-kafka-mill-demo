@@ -25,13 +25,8 @@ class ClientLive[F[_]: Async] private (
 
   private val requestUri = Uri
     .unsafeFromString(config.apiEndpoint)
-    .withQueryParam(
-      "ids",
-      config.cryptoIds.mkString(",")
-    )
+    .withQueryParam("ids", config.cryptoIds.mkString(","))
     .withQueryParam("vs_currencies", config.currencies.mkString(","))
-    .withQueryParam("include_market_cap", "true")
-    .withQueryParam("include_24hr_vol", "true")
     .withQueryParam("include_24hr_change", "true")
     .withQueryParam("include_last_updated_at", "true")
 
