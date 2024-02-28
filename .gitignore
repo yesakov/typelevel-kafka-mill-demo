@@ -1,0 +1,14 @@
+*.class
+*.log
+.metals/
+.bloop/
+.bsp/
+.idea/
+.vscode/
+out/
+target/
+project/
+metals.sbt
+web_client/node_modules/
+web_client/dist/
+web_client/.parcel-cache/
