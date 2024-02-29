@@ -15,54 +15,54 @@ import fs2.*
 trait KafkaConsumerServiceDSL[F[_], A, B] {
   def consumeAndProcess(
       topic: String,
-      process: ConsumerRecord[A, A] => Either[String, (A, B)]
+      process: ConsumerRecord[A, A] => F[Either[String, (A, B)]]
   ): F[Stream[F, Either[String, (A, B)]]]
 }
 
 class KafkaConsumerServiceLive[F[_]: Async: Concurrent, A, B] private (
-    kafkaConsumerConfig: KafkaConsumerConfig,
+    consumerSettings: ConsumerSettings[F, A, A],
     loggerFactory: LoggerFactory[F]
-)(implicit deserializer: Deserializer[F, A])
-    extends KafkaConsumerServiceDSL[F, A, B] {
+) extends KafkaConsumerServiceDSL[F, A, B] {
 
   private val logger = loggerFactory.getLogger
 
-  private val consumerSettings = ConsumerSettings(
-    keyDeserializer = Deserializer[F, A],
-    valueDeserializer = Deserializer[F, A]
-  ).withAutoOffsetReset(AutoOffsetReset.Earliest)
-    .withBootstrapServers(kafkaConsumerConfig.bootstrapServers)
-    .withGroupId(kafkaConsumerConfig.groupId)
-
-  private val kafkaConsumer = KafkaConsumer.stream(consumerSettings)
-
   override def consumeAndProcess(
       topic: String,
-      process: ConsumerRecord[A, A] => Either[String, (A, B)]
+      process: ConsumerRecord[A, A] => F[Either[String, (A, B)]]
   ): F[Stream[F, Either[String, (A, B)]]] = {
 
     for {
       _ <- logger.info(s"Consuming from topic: $topic")
-      res <- Async[F]
-        .pure(
-          kafkaConsumer
-            .subscribeTo(topic)
-            .partitionedRecords
-            .map { partitionStream =>
-              partitionStream.map { committable =>
-                process(committable.record)
-              }
+      res <- Async[F].pure(
+        KafkaConsumer
+          .stream(consumerSettings)
+          .subscribeTo(topic)
+          .partitionedRecords
+          .flatMap { partitionStream =>
+            partitionStream.map { committable =>
+              Stream.eval(process(committable.record))
             }
-            .parJoinUnbounded
-        )
+          }
+          .parJoinUnbounded
+      )
     } yield res
   }
-}
 
+}
 object KafkaConsumerServiceLive {
+
   def make[F[_]: Async, A, B](
       config: KafkaConsumerConfig,
       loggerFactory: LoggerFactory[F]
-  )(implicit deserializer: Deserializer[F, A]): F[KafkaConsumerServiceLive[F, A, B]] =
-    new KafkaConsumerServiceLive[F, A, B](config, loggerFactory).pure[F]
+  )(implicit deserializer: Deserializer[F, A]): F[KafkaConsumerServiceLive[F, A, B]] = {
+
+    val consumerSettings = ConsumerSettings(
+      keyDeserializer = Deserializer[F, A],
+      valueDeserializer = Deserializer[F, A]
+    ).withAutoOffsetReset(AutoOffsetReset.Earliest)
+      .withBootstrapServers(config.bootstrapServers)
+      .withGroupId(config.groupId)
+
+    new KafkaConsumerServiceLive[F, A, B](consumerSettings, loggerFactory).pure[F]
+  }
 }

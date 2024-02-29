@@ -1,4 +1,4 @@
-package service
+package consumer.service
 
 import shared.domain.cryptoPrice.*
 import cats.effect.kernel.Async
@@ -72,7 +72,7 @@ class PostgresServiceLive[F[_]: Async] private (
 object PostgresServiceLive {
   def make[F[_]: Async](
       loggerFactory: LoggerFactory[F]
-  ): F[PostgresServiceDsl[F]] = {
+  ): F[PostgresServiceLive[F]] = {
 
     val logger: Logger[F] = loggerFactory.getLogger
 
@@ -83,9 +83,9 @@ object PostgresServiceLive {
         url = "jdbc:postgresql://localhost:5444/", // Connect URL - Driver specific
         user = "docker",                           // Database user name
         password = "docker",                       // Database password
-        logHandler = Some(new LogHandler[F] {
+        logHandler = Some(new LogHandler[F] { // Log Handler
           def run(logEvent: LogEvent): F[Unit] = logger.info(logEvent.sql)
-        }) // Here we specify our log event handler
+        })
       )
 
     new PostgresServiceLive[F](transactor, logger).pure[F]

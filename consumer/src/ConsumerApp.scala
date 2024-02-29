@@ -12,6 +12,9 @@ import consumer.service.KafkaConsumerServiceLive
 import consumer.service.recordsService.RecordsServiceLive
 import shared.domain.cryptoPrice.*
 import consumer.http.CryptoRouter
+import consumer.service.PostgresServiceLive
+import fs2.Stream
+import fs2.concurrent.Topic
 
 object Application extends IOApp.Simple {
 
@@ -20,17 +23,28 @@ object Application extends IOApp.Simple {
 
   override def run: IO[Unit] = {
     for {
-      kafkaPConsumer <- KafkaConsumerServiceLive
+      kafkaConsumer <- KafkaConsumerServiceLive
         .make[IO, String, CryptoPrice](config.kafkaConsumerConfig, logging[IO])
 
-      recordsServiceLive <- RecordsServiceLive
-        .make[IO, String, CryptoPrice](config.recordsServiceConfig)
+      postgresService <- PostgresServiceLive.make[IO](logging[IO])
 
-      cryptoStream <- kafkaPConsumer
+      recordsService <- RecordsServiceLive
+        .make[IO, String, CryptoPrice](
+          config.recordsServiceConfig,
+          postgresService.addCryptoPriceRecord,
+          postgresService.getLatestPrices
+        )
+
+      cryptoStream <- kafkaConsumer
         .consumeAndProcess(
           config.kafkaConsumerConfig.topic,
-          recordsServiceLive.processKafkaRecord
+          recordsService.processKafkaRecord
         )
+        .recover(_ => Stream.emit(Left("Kafka Stream Error")))
+
+      topic <- Topic[IO, Either[String, (String, CryptoPrice)]]
+
+      _ <- cryptoStream.through(topic.publish).compile.drain.start
 
       _ <- EmberServerBuilder
         .default[IO]
@@ -39,9 +53,9 @@ object Application extends IOApp.Simple {
         .withHttpWebSocketApp(wsb =>
           CORS(
             CryptoRouter[IO, String, CryptoPrice](
-              recordsServiceLive,
+              recordsService,
               wsb,
-              cryptoStream,
+              topic,
               logging[IO]
             ).routes.orNotFound
           )

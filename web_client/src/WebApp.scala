@@ -57,26 +57,21 @@ object Main extends TyrianIOApp[Msg, Model] {
 
   override def view(model: Model): Html[Msg] =
     div(`class` := "row")(
-      if (model.error.isDefined) {
-        div(`class` := "col")(
-          div(`class` := "alert alert-danger")(
-            model.error.get
-          )
-        )
-      } else {
-        table(
-          tableHeader ::
-            model.cryptos.sortBy(x => x._2.usd)(Ordering[BigDecimal].reverse).map { crypto =>
-              cryptoToRow(crypto)
-            }
-        )
-      }
+      table(
+        tableHeader ::
+          model.cryptos.sortBy(x => x._2.usd)(Ordering[BigDecimal].reverse).map { crypto =>
+            cryptoToRow(crypto)
+          }
+      )
     )
 
   override def update(model: Model): Msg => (Model, Cmd[IO, Msg]) = msg =>
     msg match {
-      case Msg.NoMsg    => (model, Cmd.None)
-      case Msg.Error(e) => (model.copy(error = Some(e)), Cmd.None)
+      case Msg.NoMsg => (model, Cmd.None)
+      case Msg.Error(e) => {
+        println("Erorr: " + e)
+        (model.copy(error = Some(e)), Cmd.None)
+      }
       case Msg.LoadCryptos(list) =>
         (model.copy(cryptos = list.map(x => (x._1, x._2, None))), Cmd.None)
       case Msg.UpdateCryptos(list) => (updateModelWs(model, list), Cmd.None)

@@ -9,8 +9,10 @@ import cats.syntax.all.*
 
 object recordsService {
 
-  class RecordsServiceLive[A, B: Decoder] private (
-      recordsServiceConfig: RecordsServiceConfig
+  class RecordsServiceLive[F[_]: Async, A, B: Decoder] private (
+      recordsServiceConfig: RecordsServiceConfig,
+      storeRecordToDb: (A, B) => F[Int],
+      getLatestFromDb: F[List[(A, B)]]
   ) {
 
     private val recordsContainer = new RecordsContainer[A, B](recordsServiceConfig.maxRecordsSize)
@@ -22,19 +24,29 @@ object recordsService {
         .map(err => err.toString)
     }
 
-    def addRecord(record: (A, B)): Unit = {
-      recordsContainer.update(record._1, record._2)
+    def addRecord(record: (A, B)): F[Unit] = {
+      for {
+        _ <- Async[F].pure(recordsContainer.update(record._1, record._2))
+        _ <- storeRecordToDb(record._1, record._2)
+      } yield ()
     }
 
-    def processKafkaRecord(record: ConsumerRecord[A, A]): Either[String, (A, B)] = {
-      deserializeRecord(record).map { record =>
-        addRecord(record._1, record._2)
-        record
+    def processKafkaRecord(record: ConsumerRecord[A, A]): F[Either[String, (A, B)]] = {
+      for {
+        recordE <- Async[F].pure(deserializeRecord(record))
+        _       <- recordE.fold(err => Async[F].pure(()), record => addRecord(record._1, record._2))
+      } yield recordE
+
+    }
+
+    def getLatestRecords: F[List[(A, B)]] = {
+      val latest = recordsContainer.getLatest
+
+      if (latest.isEmpty) {
+        getLatestFromDb
+      } else {
+        Async[F].pure(latest)
       }
-    }
-
-    def getLatestRecords: List[(A, B)] = {
-      recordsContainer.getLatest
     }
 
     def getAllRecords: Map[A, List[B]] = {
@@ -44,9 +56,12 @@ object recordsService {
 
   object RecordsServiceLive {
     def make[F[_]: Async, A, B: Decoder](
-        recordsServiceConfig: RecordsServiceConfig
-    ): F[RecordsServiceLive[A, B]] =
-      new RecordsServiceLive[A, B](recordsServiceConfig).pure[F]
+        recordsServiceConfig: RecordsServiceConfig,
+        storeRecordToDb: (A, B) => F[Int],
+        getLatestFromDb: F[List[(A, B)]]
+    ): F[RecordsServiceLive[F, A, B]] =
+      new RecordsServiceLive[F, A, B](recordsServiceConfig, storeRecordToDb, getLatestFromDb)
+        .pure[F]
   }
 
   class RecordsList[A](maxSize: Int) {

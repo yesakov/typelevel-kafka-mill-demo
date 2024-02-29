@@ -1,6 +1,6 @@
 import utest._
 import shared.domain.cryptoPrice.*
-import service.PostgresServiceLive
+import consumer.service.PostgresServiceLive
 import cats.effect.IO
 import org.typelevel.log4cats.slf4j.Slf4jFactory
 import cats.effect.unsafe.implicits.global

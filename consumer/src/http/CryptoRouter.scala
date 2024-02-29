@@ -15,11 +15,12 @@ import org.http4s.websocket.WebSocketFrame
 import fs2.{Stream, Pipe}
 import scala.concurrent.duration.*
 import io.circe.syntax.*
+import fs2.concurrent.Topic
 
 class CryptoRouter[F[_]: Async: Concurrent: Temporal, A: Encoder, B: Encoder] private (
-    recordsService: RecordsServiceLive[A, B],
+    recordsService: RecordsServiceLive[F, A, B],
     wsb: WebSocketBuilder2[F],
-    sendStream: Stream[F, Either[String, (A, B)]],
+    topic: Topic[F, Either[String, (A, B)]],
     loggerFactory: LoggerFactory[F]
 ) extends Http4sDsl[F] {
 
@@ -36,15 +37,18 @@ class CryptoRouter[F[_]: Async: Concurrent: Temporal, A: Encoder, B: Encoder] pr
 
     // ws /crypto/ws
     case GET -> Root / "ws" =>
+      val toClientStream: Stream[F, WebSocketFrame] = topic
+        .subscribe(1000)
+        .filter(_.isRight)
+        .map(_.toOption.get)
+        .map(record => WebSocketFrame.Text(record.asJson.noSpaces))
+
       wsb.build(
         Stream(
           Stream
             .awakeEvery[F](30.seconds)
             .map(_ => WebSocketFrame.Ping()),
-          sendStream
-            .filter(_.isRight)
-            .map(_.toOption.get)
-            .map(record => WebSocketFrame.Text(record.asJson.noSpaces))
+          toClientStream
         ).parJoinUnbounded,   // send
         handleRecieveStream() // recieve
       )
@@ -66,20 +70,20 @@ class CryptoRouter[F[_]: Async: Concurrent: Temporal, A: Encoder, B: Encoder] pr
 
 object CryptoRouter {
   def apply[F[_]: Async: Concurrent: Temporal, A: Encoder, B: Encoder](
-      recordsService: RecordsServiceLive[A, B],
+      recordsService: RecordsServiceLive[F, A, B],
       wsb: WebSocketBuilder2[F],
-      sendStream: Stream[F, Either[String, (A, B)]],
+      topic: Topic[F, Either[String, (A, B)]],
       loggerFactory: LoggerFactory[F]
   ): CryptoRouter[F, A, B] = {
-    new CryptoRouter[F, A, B](recordsService, wsb, sendStream, loggerFactory)
+    new CryptoRouter[F, A, B](recordsService, wsb, topic, loggerFactory)
   }
 
   def make[F[_]: Async: Concurrent: Temporal, A: Encoder, B: Encoder](
-      recordsService: RecordsServiceLive[A, B],
+      recordsService: RecordsServiceLive[F, A, B],
       wsb: WebSocketBuilder2[F],
-      sendStream: Stream[F, Either[String, (A, B)]],
+      topic: Topic[F, Either[String, (A, B)]],
       loggerFactory: LoggerFactory[F]
   ): F[CryptoRouter[F, A, B]] = {
-    new CryptoRouter[F, A, B](recordsService, wsb, sendStream, loggerFactory).pure[F]
+    new CryptoRouter[F, A, B](recordsService, wsb, topic, loggerFactory).pure[F]
   }
 }
