@@ -8,7 +8,6 @@ import org.http4s.dsl.Http4sDsl
 import org.http4s.circe.CirceEntityCodec.*
 import io.circe.Encoder
 import org.http4s.server.Router
-import consumer.service.recordsService.RecordsServiceLive
 import org.typelevel.log4cats.LoggerFactory
 import org.http4s.server.websocket.WebSocketBuilder2
 import org.http4s.websocket.WebSocketFrame
@@ -16,11 +15,12 @@ import fs2.{Stream, Pipe}
 import scala.concurrent.duration.*
 import io.circe.syntax.*
 import fs2.concurrent.Topic
+import consumer.service.PostgresServiceDsl
 
 class CryptoRouter[F[_]: Async: Concurrent: Temporal, A: Encoder, B: Encoder] private (
-    recordsService: RecordsServiceLive[F, A, B],
     wsb: WebSocketBuilder2[F],
     topic: Topic[F, Either[String, (A, B)]],
+    postgresService: PostgresServiceDsl[F],
     loggerFactory: LoggerFactory[F]
 ) extends Http4sDsl[F] {
 
@@ -31,8 +31,9 @@ class CryptoRouter[F[_]: Async: Concurrent: Temporal, A: Encoder, B: Encoder] pr
     // get /crypto
     case GET -> Root =>
       for {
-        _    <- logger.info("GET latest crypto data")
-        resp <- Ok(recordsService.getLatestRecords)
+        _            <- logger.info("GET latest crypto data")
+        latestCrypto <- postgresService.getLatestPrices
+        resp         <- Ok(latestCrypto)
       } yield resp
 
     // ws /crypto/ws
@@ -70,20 +71,20 @@ class CryptoRouter[F[_]: Async: Concurrent: Temporal, A: Encoder, B: Encoder] pr
 
 object CryptoRouter {
   def apply[F[_]: Async: Concurrent: Temporal, A: Encoder, B: Encoder](
-      recordsService: RecordsServiceLive[F, A, B],
       wsb: WebSocketBuilder2[F],
       topic: Topic[F, Either[String, (A, B)]],
+      postgresService: PostgresServiceDsl[F],
       loggerFactory: LoggerFactory[F]
   ): CryptoRouter[F, A, B] = {
-    new CryptoRouter[F, A, B](recordsService, wsb, topic, loggerFactory)
+    new CryptoRouter[F, A, B](wsb, topic, postgresService, loggerFactory)
   }
 
   def make[F[_]: Async: Concurrent: Temporal, A: Encoder, B: Encoder](
-      recordsService: RecordsServiceLive[F, A, B],
       wsb: WebSocketBuilder2[F],
       topic: Topic[F, Either[String, (A, B)]],
+      postgresService: PostgresServiceDsl[F],
       loggerFactory: LoggerFactory[F]
   ): F[CryptoRouter[F, A, B]] = {
-    new CryptoRouter[F, A, B](recordsService, wsb, topic, loggerFactory).pure[F]
+    new CryptoRouter[F, A, B](wsb, topic, postgresService, loggerFactory).pure[F]
   }
 }

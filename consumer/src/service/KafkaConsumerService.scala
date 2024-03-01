@@ -10,25 +10,34 @@ import cats.effect.*
 import cats.syntax.all.*
 import cats.effect.kernel.Async
 import fs2.Stream
-import fs2.*
+// import fs2.*
+import io.circe.parser._
+import io.circe.Decoder
 
 trait KafkaConsumerServiceDSL[F[_], A, B] {
   def consumeAndProcess(
       topic: String,
-      process: ConsumerRecord[A, A] => F[Either[String, (A, B)]]
+      storeRecordToDB: (A, B) => F[Int]
   ): F[Stream[F, Either[String, (A, B)]]]
 }
 
-class KafkaConsumerServiceLive[F[_]: Async: Concurrent, A, B] private (
+class KafkaConsumerServiceLive[F[_]: Async: Concurrent, A, B: Decoder] private (
     consumerSettings: ConsumerSettings[F, A, A],
     loggerFactory: LoggerFactory[F]
 ) extends KafkaConsumerServiceDSL[F, A, B] {
 
   private val logger = loggerFactory.getLogger
 
+  private def deserializeRecord(record: ConsumerRecord[A, A]): Either[String, (A, B)] = {
+    decode[B](record.value.toString())
+      .map(res => (record.key, res))
+      .left
+      .map(err => err.toString)
+  }
+
   override def consumeAndProcess(
       topic: String,
-      process: ConsumerRecord[A, A] => F[Either[String, (A, B)]]
+      storeRecordToDB: (A, B) => F[Int]
   ): F[Stream[F, Either[String, (A, B)]]] = {
 
     for {
@@ -40,7 +49,15 @@ class KafkaConsumerServiceLive[F[_]: Async: Concurrent, A, B] private (
           .partitionedRecords
           .flatMap { partitionStream =>
             partitionStream.map { committable =>
-              Stream.eval(process(committable.record))
+              val deserializedRecord = deserializeRecord(committable.record)
+              val recordF = for {
+                _ <- deserializedRecord.fold(
+                  err => logger.error(err) *> Async[F].pure(0),
+                  record => storeRecordToDB(record._1, record._2)
+                )
+                rec <- Async[F].pure(deserializedRecord)
+              } yield rec
+              Stream.eval(recordF)
             }
           }
           .parJoinUnbounded
@@ -51,7 +68,7 @@ class KafkaConsumerServiceLive[F[_]: Async: Concurrent, A, B] private (
 }
 object KafkaConsumerServiceLive {
 
-  def make[F[_]: Async, A, B](
+  def make[F[_]: Async, A, B: Decoder](
       config: KafkaConsumerConfig,
       loggerFactory: LoggerFactory[F]
   )(implicit deserializer: Deserializer[F, A]): F[KafkaConsumerServiceLive[F, A, B]] = {

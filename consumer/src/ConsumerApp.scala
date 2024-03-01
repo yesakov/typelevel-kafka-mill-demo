@@ -9,7 +9,6 @@ import consumer.config.consumerConfig.*
 import org.typelevel.log4cats.slf4j.Slf4jFactory
 import org.typelevel.log4cats.LoggerFactory
 import consumer.service.KafkaConsumerServiceLive
-import consumer.service.recordsService.RecordsServiceLive
 import shared.domain.cryptoPrice.*
 import consumer.http.CryptoRouter
 import consumer.service.PostgresServiceLive
@@ -23,22 +22,23 @@ object Application extends IOApp.Simple {
 
   override def run: IO[Unit] = {
     for {
-      kafkaConsumer <- KafkaConsumerServiceLive
-        .make[IO, String, CryptoPrice](config.kafkaConsumerConfig, logging[IO])
 
       postgresService <- PostgresServiceLive.make[IO](logging[IO])
 
-      recordsService <- RecordsServiceLive
-        .make[IO, String, CryptoPrice](
-          config.recordsServiceConfig,
-          postgresService.addCryptoPriceRecord,
-          postgresService.getLatestPrices
-        )
+      kafkaConsumer <- KafkaConsumerServiceLive
+        .make[IO, String, CryptoPrice](config.kafkaConsumerConfig, logging[IO])
+
+      // recordsService <- RecordsServiceLive
+      //   .make[IO, String, CryptoPrice](
+      //     config.recordsServiceConfig,
+      //     postgresService.addCryptoPriceRecord,
+      //     postgresService.getLatestPrices
+      //   )
 
       cryptoStream <- kafkaConsumer
         .consumeAndProcess(
           config.kafkaConsumerConfig.topic,
-          recordsService.processKafkaRecord
+          postgresService.addCryptoPriceRecord
         )
         .recover(_ => Stream.emit(Left("Kafka Stream Error")))
 
@@ -53,9 +53,9 @@ object Application extends IOApp.Simple {
         .withHttpWebSocketApp(wsb =>
           CORS(
             CryptoRouter[IO, String, CryptoPrice](
-              recordsService,
               wsb,
               topic,
+              postgresService,
               logging[IO]
             ).routes.orNotFound
           )
